@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Task } from './task.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -9,6 +14,8 @@ import { User } from 'src/auth/user.entity';
 
 @Injectable()
 export class TasksService {
+  private logger = new Logger('TasksService');
+
   constructor(
     @InjectRepository(Task)
     private tasksRepository: Repository<Task>,
@@ -30,8 +37,18 @@ export class TasksService {
       );
     }
 
-    const tasks = query.getMany();
-    return tasks;
+    try {
+      const tasks = query.getMany();
+      return tasks;
+    } catch (error) {
+      this.logger.error(
+        `Failed to get tasks for user "${
+          user.username
+        }". Filters: ${JSON.stringify(filterDto)}`,
+        error.stack,
+      );
+      throw new InternalServerErrorException();
+    }
   }
 
   async getTaskById(id: string, user: User): Promise<Task> {
@@ -40,6 +57,9 @@ export class TasksService {
     });
 
     if (!task) {
+      this.logger.verbose(
+        `User "${user.username}" failed to get task with ID: ${id}`,
+      );
       throw new NotFoundException(`Task with ID "${id}" not found`);
     }
     return task;
@@ -55,8 +75,15 @@ export class TasksService {
       user,
     });
 
-    await this.tasksRepository.save(task);
-    return task;
+    try {
+      await this.tasksRepository.save(task);
+      return task;
+    } catch (error) {
+      this.logger.error(
+        `Failed to save task for user "${user.username}"`,
+        error.stack,
+      );
+    }
   }
 
   async deleteTask(id: string, user: User): Promise<void> {
@@ -73,7 +100,14 @@ export class TasksService {
   ): Promise<Task> {
     const task = await this.getTaskById(id, user);
     task.status = status;
-    await this.tasksRepository.save(task);
-    return task;
+    try {
+      await this.tasksRepository.save(task);
+      return task;
+    } catch (error) {
+      this.logger.error(
+        `Failed to update task with ID "${id}" for user "${user.username}"`,
+        error.stack,
+      );
+    }
   }
 }
